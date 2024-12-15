@@ -88,6 +88,9 @@ void testPongs() {
         uint16_t color; // Pong color
     };
 
+    // Pongs amount
+    int pongsAmount = 4;
+
     // Pongs radiuses
     int r1 = 10;
     int r2 = 6;
@@ -101,21 +104,18 @@ void testPongs() {
     Pong pong4 = {lcd.W-1-r4, r4, r4, -1, 1, MAGENTA};
 
     // Array of pongs
-    Pong pongs[4] = {pong1, pong2, pong3, pong4};
+    Pong pongs[pongsAmount] = {pong1, pong2, pong3, pong4};
     
     // Collision counter to end test function
     int clCount = 0;
 
     while (clCount <= 100) {
-        
-        // Drawing pongs
-        lcd.fillCircle(pongs[0].x, pongs[0].y, pongs[0].rad, pongs[0].color);
-        lcd.fillCircle(pongs[1].x, pongs[1].y, pongs[1].rad, pongs[1].color);
-        lcd.fillCircle(pongs[2].x, pongs[2].y, pongs[2].rad, pongs[2].color);
-        lcd.fillCircle(pongs[3].x, pongs[3].y, pongs[3].rad, pongs[3].color);
 
-        // Collision handler
-        for (int i = 0; i != 4; i++) {
+        // Drawing & collision handler
+        for (int i = 0; i < pongsAmount; i++) {
+
+            // Drawing pongs
+            lcd.fillCircle(pongs[i].x, pongs[i].y, pongs[i].rad, pongs[i].color);
 
             // X collision check
             if (pongs[i].x == 0 + pongs[i].rad)             {pongs[i].dirX = 1; clCount++;}
@@ -187,13 +187,13 @@ int main() {
 
     // Display setup
     lcd.init();
-
     // Cleaning screen from noise and old data
-    lcd.clearDisplayForce(BLACK);
+    lcd.clearDisplay(BLACK);
 
-    // Configuring displaying mode (default - COLUMNS_MODE)
-    // lcd.setDisplayingMode(ROWS_MODE);
-    lcd.setDisplayingMode(COLUMNS_MODE);
+    // Configuring displaying mode (default - fullscreen mode)
+    lcd.setDisplayingMode(PAW_MODE);
+    // Configuring mirroring (default - no mirroring)
+    lcd.setScreenMirror(NO_VER_MIRROR, NO_HOR_MIRROR);
 
     // Infinite loop
     while (true) {
