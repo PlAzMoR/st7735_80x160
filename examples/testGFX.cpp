@@ -23,12 +23,12 @@
 #define PIN_BLK    22
 
 // Frequency configuration
-#define LCD_SPI_FREQ 33 * MHZ
+#define SPI_FREQ   33 * MHZ
 
 
 
 // Initializing display object
-ST7735_80x160 lcd(PIN_SCK, PIN_MOSI, PIN_CS, PIN_DC, PIN_RST, PIN_BLK, LCD_SPI_FREQ);
+ST7735_80x160 lcd(PIN_SCK, PIN_MOSI, PIN_CS, PIN_DC, PIN_RST, PIN_BLK, SPI_FREQ);
 
 // Colors that used in test
 uint16_t colors[7] = {RED, GREEN, BLUE, CYAN, YELLOW, MAGENTA, WHITE};
@@ -41,16 +41,12 @@ int glColor = 0;
 // ----- GFX test functions -----
 
 // Draws lines from center to all directions
-void testLines() {
-
-    // Lines end difference
-    int step = 10;
+void testLines(int step = 10, int breakpoint = 50) {
 
     // Current line color
     int c = 0;
 
-    // 45 - step breakpoint
-    while (step <= 45) {
+    while (step <= breakpoint) {
         
         // Drawing lines from center with step
         for (int i = 0; i < lcd.W; i += step)  lcd.drawLine(79, 40, i, lcd.H-1, colors[c]);
@@ -71,12 +67,12 @@ void testLines() {
         sleep_ms(400);
 
         // Clean display
-        lcd.fillScreen(BLACK);
+        lcd.clearDisplay();
     }
 }
 
 // Throws 4 colored pongs
-void testPongs() {
+void testPongs(int targetClCount = 100) {
 
     // Pong parameters
     struct Pong {
@@ -109,7 +105,7 @@ void testPongs() {
     // Collision counter to end test function
     int clCount = 0;
 
-    while (clCount <= 100) {
+    while (clCount <= targetClCount) {
 
         // Drawing & collision handler
         for (int i = 0; i < pongsAmount; i++) {
@@ -134,12 +130,12 @@ void testPongs() {
         lcd.display();
 
         // Clean screen
-        lcd.fillScreen(BLACK);
+        lcd.clearDisplay();
     }
 }
 
 // Draws mark on center
-void testMark() {
+void testMark(int breakpoint = 10) {
 
     // Current mark radius
     int rad = 25;
@@ -147,7 +143,7 @@ void testMark() {
     // Counter that ends function
     int endCount = 0;
 
-    while (endCount <= 200) {
+    while (endCount <= breakpoint) {
         
         // Filling pointing triangles
         lcd.fillTriangle(10, 20, 40, 40, 10, 60, colors[glColor]);
@@ -158,10 +154,8 @@ void testMark() {
         lcd.drawCircle(80, 40, rad+1, colors[glColor]);
 
         // Incrementing radius if it not reach nax value
-        rad == 2 ? rad = 25 : rad--;
-
-        // Incrementing cycle counter
-        endCount++;
+        if (rad == 2) { rad = 25; endCount++; }
+        else rad--;
 
         // Show mark on display
         lcd.display();
@@ -170,7 +164,7 @@ void testMark() {
         sleep_ms(10);
 
         // Cleaning display
-        lcd.fillScreen(BLACK);
+        lcd.clearDisplay();
     }
 }
 
@@ -188,12 +182,21 @@ int main() {
     // Display setup
     lcd.init();
     // Cleaning screen from noise and old data
-    lcd.clearDisplay(BLACK);
+    lcd.clearDisplayForce(BLACK);
 
-    // Configuring displaying mode (default - fullscreen mode)
-    lcd.setDisplayingMode(PAW_MODE);
-    // Configuring mirroring (default - no mirroring)
+
+    // Configuring settings as default
+
+    // Display Mode
+    lcd.setDisplayingMode(FULLSCREEN_MODE);
+    // Mirroring
     lcd.setScreenMirror(NO_VER_MIRROR, NO_HOR_MIRROR);
+    // Brightness
+    lcd.setBrightness(BRIGHTNESS_MAX);
+    // Frequency
+    lcd.setSpiFrequency(33 * MHZ);
+    // Color inversion
+    lcd.setColorInversion(INVERSION_OFF);
 
     // Infinite loop
     while (true) {

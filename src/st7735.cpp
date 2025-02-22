@@ -2,19 +2,16 @@
 #include "st7735.h"
 
 
-
-// Simple macroses for class fine working
-
+// @skip Macroses for methods
 #define swap(val1, val2) { auto tmp = val2; val2 = val1; val1 = tmp; } // Swaps values (val1 <-> val2)
 #define round3(num) (num + 500) / 1000 * 1000 // Rounds int value to thousands (1500 -> 2000)
 
-// #define abs(val) { val < 0 ? -val : val } ERROR MACROS, NEED TO FIX!!! 
-// uint8_t abs(int val) { return val < 0 ? -val : val; } // For mirror display ability
 
 
-
-// --- Class constructor ---
-
+/** --- Class Constructor ---
+ * 
+ * @since v1
+*/
 ST7735_80x160::ST7735_80x160
 (
     uint8_t PIN_SCK,
@@ -39,16 +36,27 @@ ST7735_80x160::ST7735_80x160
     // Wrong pins error handler
 }
 
+/** --- Class Destructor ---
+ * 
+ * @since v4
+*/
+ST7735_80x160::~ST7735_80x160() {
+
+    // Deleting tiles 2D dynamic array to release memory
+    for (uint8_t x = 0; x < W / _tileSizeX; x++) delete[] _cgdTiles[x];
+    delete[] _cgdTiles;
+}
+
 
 
 /* Private methods */
 
-// Writing info to ST7735 through SPI
+// Basic data writing by SPI
 
 /** 
- * @brief Sends 1 byte to display through SPI port
+ * @brief Sends 1 byte to slave through SPI port
  * 
- * @param bus_data byte of any data that sends to display controller
+ * @param bus_data byte that sends to display controller
  * 
  * @since v1
 */
@@ -56,11 +64,12 @@ void ST7735_80x160::_write_spi(uint8_t bus_data) {
 
     // Activating writing mode by CS pin
     gpio_put(_PIN_CS, 0);
-    // Writing bytes of data with 1 length through address to display SPI port
+    // Writing bytes of data with 1 length by address to display SPI port
     spi_write_blocking(_SPI_PORT, &bus_data, 1);
     // Deactivating writing mode
     gpio_put(_PIN_CS, 1);
 }
+
 
 /**
  * @brief Sends 1 data byte to display
@@ -71,15 +80,17 @@ void ST7735_80x160::_write_spi(uint8_t bus_data) {
  */
 void ST7735_80x160::_send_data(uint8_t data8) {
 
-    // Activating data mode and writing 1 byte of data
+    // Activating data mode and writing 1 byte
     gpio_put(_PIN_DC, 1);
     _write_spi(data8);
 }
 
 /**
- * @brief Sends 2 data bytes to display (for color)
+ * @brief Sends 2 data bytes to display in Little Endian format (for color)
  * 
  * @param data16 2 bytes of data to send
+ * 
+ * @note Wikipedia opinion - https://en.wikipedia.org/wiki/Endianness
  * 
  * @since v1
  */
@@ -87,8 +98,29 @@ void ST7735_80x160::_send_data16(uint16_t data16) {
 
     // Activating data mode and writing 2 bytes of data
     gpio_put(_PIN_DC, 1);
-    _write_spi(data16 >> 8); // First (high) byte
-    _write_spi(data16 & 0xFF); // Second (low) byte
+    _write_spi(data16 & 0xFF); // First (low) byte
+    _write_spi(data16 >> 8); // Second (high) byte
+}
+
+/**
+ * @brief Sends 2D delta buffer to display
+ * 
+ * Method used by Fullscreen DM.
+ * 
+ * @since v4
+ */
+void ST7735_80x160::_send_buffer() {
+
+    // Activating data mode by DC pin
+    gpio_put(_PIN_DC, 1);
+    // Activating writing mode by CS pin
+    gpio_put(_PIN_CS, 0);
+
+    // Choosing every buffer column and sending it as uint8_t (bytes)
+    for (uint8_t x = 0; x < W; x++) spi_write_blocking(_SPI_PORT, (uint8_t*)_delta_buffer[x], H * sizeof(uint16_t));
+
+    // Deactivating writing mode
+    gpio_put(_PIN_CS, 1);
 }
 
 /**
@@ -127,29 +159,29 @@ void ST7735_80x160::_reset_display() {
 }
 
 /**
- * @brief Setups SPI pins and channel to transfer data
+ * @brief Configures SPI pins and port
  * 
  * @since v1
  */
 void ST7735_80x160::_spi_setup() {
 
     // Pins configuration
-    gpio_init(_PIN_SCK); gpio_set_function(_PIN_SCK, GPIO_FUNC_SPI);            // SCK pin
-    gpio_init(_PIN_MOSI); gpio_set_function(_PIN_MOSI, GPIO_FUNC_SPI);          // MOSI pin
+    gpio_init(_PIN_SCK);  gpio_set_function(_PIN_SCK, GPIO_FUNC_SPI);     // SCK pin
+    gpio_init(_PIN_MOSI); gpio_set_function(_PIN_MOSI, GPIO_FUNC_SPI);    // MOSI pin
 
-    gpio_init(_PIN_CS); gpio_set_dir(_PIN_CS, GPIO_OUT);                        // CS pin
-    gpio_init(_PIN_DC); gpio_set_dir(_PIN_DC, GPIO_OUT);                        // DC pin
+    gpio_init(_PIN_CS);   gpio_set_dir(_PIN_CS, GPIO_OUT);                // CS pin
+    gpio_init(_PIN_DC);   gpio_set_dir(_PIN_DC, GPIO_OUT);                // DC pin
 
-    // Initializing SPI port of LCD with private frequency property
+    // Initializing SPI port of display with private frequency
     spi_init(_SPI_PORT, _SPI_FREQ);
 }
 
 /**
- * @brief Setups brightness control pin (BLK) with PWM
+ * @brief Configures PWM and brightness control pin (BLK)
  * 
- * Current PWM frequency on RPi Pico - 9.7 kHz to minimize blinking.
+ * Current PWM frequency on Pico board - 9.7 kHz to minimize blinking.
  * 
- * PWM frequency can be speed up/down by decreasing/increasing clkdiv PWM value.
+ * PWM frequency can be speed up/slow down by decreasing/increasing clkdiv PWM value.
  * 
  * Possible frequencies: 2 - 20 kHz.
  * 
@@ -157,31 +189,30 @@ void ST7735_80x160::_spi_setup() {
  */
 void ST7735_80x160::_blk_setup() {
 
-    // If BLK pin connected...
-    if (_PIN_BLK) {
+    // BLK pin not connected handler
+    if (!_PIN_BLK) return;
 
-        // Initializing BLK pin as PWM
-        gpio_init(_PIN_BLK); gpio_set_function(_PIN_BLK, GPIO_FUNC_PWM);
+    // Initializing BLK pin as PWM
+    gpio_init(_PIN_BLK); gpio_set_function(_PIN_BLK, GPIO_FUNC_PWM);
 
-        // Taking BLK pin PWM slice (check RP2040 docs 4.6)
-        uint8_t _slice_num = pwm_gpio_to_slice_num(_PIN_BLK);
-        // Taking PWM default config to change
-        pwm_config _pwm_config = pwm_get_default_config();
+    // Taking BLK pin PWM slice (check RP2040 docs 4.6)
+    uint8_t _slice_num = pwm_gpio_to_slice_num(_PIN_BLK);
+    // Taking PWM default config to change
+    pwm_config _pwm_config = pwm_get_default_config();
 
-        // Setting PWM slice max value to 255 to speed up performance by lower PWM data
-        pwm_config_set_wrap(&_pwm_config, MAX_WRAP);
-        // Changing clock divider to 50 for slowing down PWM frequency
-        pwm_config_set_clkdiv(&_pwm_config, FREQ_CLKDIV);
+    // Setting PWM slice max value to 255 to speed up performance by lower PWM data
+    pwm_config_set_wrap(&_pwm_config, MAX_WRAP);
+    // Changing clock divider to 50 for slowing down PWM frequency
+    pwm_config_set_clkdiv(&_pwm_config, FREQ_CLKDIV);
 
-        // Re-initializing PWM with updated operating frequency = 
-        // = MCU freq / (clkdiv * (wrap + 1)) = 125MHz / 50 * (255 + 1) = ~ 9.7kHz
-        pwm_init(_slice_num, &_pwm_config, true);
-        // Enabling PWM on BLK slice
-        pwm_set_enabled(_slice_num, true);
+    // Re-initializing PWM with updated operating frequency = 
+    // = MCU freq / (clkdiv * (wrap + 1)) = 125MHz / 50 * (255 + 1) = ~9.7kHz
+    pwm_init(_slice_num, &_pwm_config, true);
+    // Enabling PWM on BLK slice
+    pwm_set_enabled(_slice_num, true);
 
-        // Setting display brightness to default
-        setBrightness(BRIGHTNESS_DEFAULT);
-    }
+    // Setting display brightness to default
+    setBrightness(BRIGHTNESS_DEFAULT);
 }
 
 /**
@@ -202,13 +233,33 @@ void ST7735_80x160::_cmd_setup() {
         _send_command(CMD_COLOR_INV_ON); // If no inversion, return to defaul colors (actually inverted)
     }
 
-    _send_command(CMD_DISPLAY_ADR_DIR); // Address direction, inverts display in some data values
+    _send_command(CMD_ADDRESS_DIR); // Address direction, inverts display in some data values
     _send_data(0x08); // 0x08 - default order (RGB)
 
     _send_command(CMD_COLOR_MODE_SET); // Setting color mode
     _send_data(0x05); // 0x05 - 16 bit/pixel (RGB565 - standard)
 
     _send_command(CMD_DISPLAY_ON);
+}
+
+/**
+ * @brief Initializes tiles array used by Tiles DM
+ * 
+ * @param tileSize size of tiles by Y (2 times more by X)
+ * 
+ * @since v4
+ */
+void ST7735_80x160::_tiles_setup(uint8_t tileSize) {
+
+    // Changing private tile size properties
+    _tileSizeX = tileSize * 2;
+    _tileSizeY = tileSize;
+
+    // Creating 1D array of pointers (X axis part of dynamic 2D array)
+    _cgdTiles = new bool*[W / _tileSizeX];
+
+    // Creating 1D arrays from pointers (Y axis part of array)
+    for (uint8_t x = 0; x < W / _tileSizeX; x++) _cgdTiles[x] = new bool[H / _tileSizeY];
 }
 
 /**
@@ -221,7 +272,7 @@ void ST7735_80x160::_cmd_setup() {
  * 
  * @since v1
  */
-void ST7735_80x160::_setAdressWindow(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2) {
+void ST7735_80x160::_setAddressWindow(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2) {
 
     // Commands and data for configuring address window
     _send_command(CMD_COL_ADR_SET); // Column address configuration
@@ -248,56 +299,14 @@ void ST7735_80x160::_setAdressWindow(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t
  */
 void ST7735_80x160::_displayFullscreen() {
 
-    // Debug timer
-    // absolute_time_t st = to_us_since_boot(get_absolute_time());
-
-    /* Mirror settings */
-
-    // Initializing start position coordinates (increased by 1 to avoid uint8_t overflow)
-    uint8_t _startY = 1;
-    uint8_t _startX = 1;
-
-    // Initializing last row/col coordinates (increased by 1 to avoid uint8_t overflow)
-    uint8_t _lastY = H+1;
-    uint8_t _lastX = W+1;
-
-    // Initializing directions to move in buffer row/column order with mirroring
-    int _dirY = 1;
-    int _dirX = 1;
-
-    // Mirror configuring if mirrorring mode enabled
-    if (_MIRRORED_VER) { _startY = H; _lastY = 0; _dirY = -1; }
-    if (_MIRRORED_HOR) { _startX = W; _lastX = 0; _dirX = -1; }
-
-    /* End of mirror settings */
-
-
-
     // Fullscreen address window set
-    _setAdressWindow(0, 0, W-1, H-1);
+    _setAddressWindow(0, 0, W-1, H-1);
 
-    // Choosing every column
-    for (uint8_t x = _startX; x != _lastX; x += _dirX) {
-        
-        // Decrementing x to avoid uint8_t overflow
-        x -= 1;
+    // Sending buffer
+    _send_buffer();
 
-        // Choosing every pixel in column
-        for (uint8_t y = _startY; y != _lastY; y += _dirY) {
-
-            // Sending pixel from buffer to display (y decreased by 1 to avoid uint8_t overflow)
-            _send_data16(_delta_buffer[x][y-1]);
-
-            // Replacing screen buffer with delta buffer (updated zone)
-            _screen_buffer[x][y-1] = _delta_buffer[x][y-1];
-        }
-
-        // Increasing x back
-        x += 1;
-    }
-
-    // Debug timer
-    // printf("Fullscreen done for %llu us\n", to_us_since_boot(get_absolute_time()) - st);
+    // Replacing screen buffer with delta buffer
+    for (uint8_t x = 0; x < W; x++) memcpy(_screen_buffer[x], _delta_buffer[x], H * sizeof(uint16_t));
 }
 
 /**
@@ -309,38 +318,14 @@ void ST7735_80x160::_displayFullscreen() {
  */
 void ST7735_80x160::_displayCAZ() {
 
-    // Debug timer
-    // absolute_time_t st = to_us_since_boot(get_absolute_time());
+    // Column iterating
+    for (uint8_t x = 0; x < W; x++) {
 
-    /* Mirror settings */
-
-    // Initialing mirror offsets for AZ address window
-    uint8_t _y_mirror_offset = 0;
-    uint8_t _x_mirror_offset = 0;
-
-    // Value for right mirror order (0 - _minAZ, 1 - _maxAZ)
-    bool _orderAZ = 0;
-    
-    // Mirror configuring if mirrorring mode enabled (setting offsets and AZ order)
-    if (_MIRRORED_VER) { _y_mirror_offset = H-1; _orderAZ = 1; }
-    if (_MIRRORED_HOR) { _x_mirror_offset = W-1; }
-
-    /* End of mirror settings */
-
-
-
-    // Choosing every column
-    for (uint8_t x = 0; x <= W-1; x++) {
-
-        // If active zone existing (_minY < SCREEN_HEIGHT) - update column
+        // If current AZ exists (AZ not default) - update column
         if (_colsAZ[x][0] < H) {
                 
-            // Current column (at x) active zone address window set with mirror ability
-            // (orders for x mirror: NXM - 0, 1; XM - 1, 0)
-            _setAdressWindow(abs(_x_mirror_offset - x),
-                            abs(_y_mirror_offset - _colsAZ[x][_orderAZ]),
-                            abs(_x_mirror_offset - x),
-                            abs(_y_mirror_offset - _colsAZ[x][!_orderAZ]));
+            // Current column (at x) active zone address window set
+            _setAddressWindow(x, _colsAZ[x][0], x, _colsAZ[x][1]);
 
             // Choosing every pixel in Active Zone
             for (uint8_t y = _colsAZ[x][0]; y <= _colsAZ[x][1]; y++) {
@@ -357,9 +342,6 @@ void ST7735_80x160::_displayCAZ() {
             _colsAZ[x][1] = 0;
         }
     }
-
-    // Debug timer
-    // printf("CAZ done for %llu us\n", to_us_since_boot(get_absolute_time()) - st);
 }
 
 /**
@@ -371,42 +353,18 @@ void ST7735_80x160::_displayCAZ() {
  */
 void ST7735_80x160::_displayRAZ() {
 
-    // Debug timer
-    // absolute_time_t st = to_us_since_boot(get_absolute_time());
-
-    /* Mirror settings */
-
-    // Initialing mirror offsets for AZ address window
-    uint8_t _y_mirror_offset = 0;
-    uint8_t _x_mirror_offset = 0;
-
-    // Value for right mirror order (0 - minAZ, 1 - maxAZ)
-    bool _orderAZ = 0;
-
-    // Mirror configuring if mirrorring mode enabled (setting offsets and AZ order)
-    if (_MIRRORED_VER) { _y_mirror_offset = H-1; }
-    if (_MIRRORED_HOR) { _x_mirror_offset = W-1; _orderAZ = 1; }
-
-    /* End of mirror settings */
-
-
-
-    // Choosing every row
+    // Row iterating
     for (uint8_t y = 0; y < H; y++) {
 
-        // If active zone existing (_minX < SCREEN_WIDTH) - update row
+        // If current AZ exists (AZ not default) - update row
         if (_rowsAZ[y][0] < W) {
 
-            // Current row (at y) active zone address window set with mirror ability
-            // (orders for y mirror: NXM - 0, 1; XM - 1, 0)
-            _setAdressWindow(abs(_x_mirror_offset - _rowsAZ[y][_orderAZ]),
-                            abs(_y_mirror_offset - y), 
-                            abs(_x_mirror_offset - _rowsAZ[y][!_orderAZ]),
-                            abs(_y_mirror_offset - y));
+            // Current row (at y) active zone address window set
+            _setAddressWindow(_rowsAZ[y][0], y, _rowsAZ[y][1], y);
             
-            // Choosing every pixel in active zone
+            // Choosing every pixel in Active Zone
             for (uint8_t x = _rowsAZ[y][0]; x <= _rowsAZ[y][1]; x++) {
-                
+
                 // Sending pixel from buffer to display
                 _send_data16(_delta_buffer[x][y]);
 
@@ -419,9 +377,6 @@ void ST7735_80x160::_displayRAZ() {
         _rowsAZ[y][0] = W;
         _rowsAZ[y][1] = 0;
     }
-
-    // Debug timer
-    // printf("RAZ done for %llu us\n", to_us_since_boot(get_absolute_time()) - st);
 }
 
 /**
@@ -433,27 +388,10 @@ void ST7735_80x160::_displayRAZ() {
  */
 void ST7735_80x160::_displayPAW() {
 
-    // Debug timer
-    // absolute_time_t st = to_us_since_boot(get_absolute_time());
-
-    /* Mirror settings */
-
-    // Initializing mirror offsets by X and Y axis
-    uint8_t _y_mirror_offset = 0;
-    uint8_t _x_mirror_offset = 0;
-
-    // Mirror configuring if mirrorring mode enabled (setting mirror offsets)
-    if (_MIRRORED_VER) { _y_mirror_offset = H-1; }
-    if (_MIRRORED_HOR) { _x_mirror_offset = W-1; }
-
-    /* End of mirror settings */
-
-
-
-    // Choosing every column
+    // Column iterating
     for (uint8_t x = 0; x < W; x++) {
 
-        // If column was changed by pixels... (_minY < SCREEN_HEIGHT)
+        // If current AZ exists... (AZ not default)
         if (_colsAZ[x][0] < H) {
             
             // Choosing every pixel in Column Active Zone
@@ -462,11 +400,8 @@ void ST7735_80x160::_displayPAW() {
                 // If current pixel is new...
                 if (_screen_buffer[x][y] != _delta_buffer[x][y]) {
 
-                    // Setting one pixel address window with mirror offsets
-                    _setAdressWindow(abs(x - _x_mirror_offset),
-                                    abs(y - _y_mirror_offset),
-                                    abs(x - _x_mirror_offset),
-                                    abs(y - _y_mirror_offset));
+                    // Putting one pixel address window
+                    _setAddressWindow(x, y, x, y);
 
                     // Sending pixel from delta buffer to display
                     _send_data16(_delta_buffer[x][y]);
@@ -481,88 +416,54 @@ void ST7735_80x160::_displayPAW() {
             _colsAZ[x][1] = 0;
         }
     }
-
-    // Debug timer
-    // printf("PAW done for %llu us\n", to_us_since_boot(get_absolute_time()) - st);
 }
 
 /**
  * @brief Private displaying method used by display() wrapper
  * 
- * Displaying mode - Tile displaying mode
+ * Displaying mode - Tile Displaying mode
  * 
  * @since v3
  */
 void ST7735_80x160::_displayTiles() {
 
-    // Debug timer
-    // absolute_time_t st = to_us_since_boot(get_absolute_time());
-
-    /* Mirror settings */
-
-    // Initializing mirror offsets by X and Y axis
-    uint8_t _y_mirror_offset = 0;
-    uint8_t _x_mirror_offset = 0;
-
-    // Initializing directions to move in buffer row/column order with mirroring
-    int _dirY = 1;
-    int _dirX = 1;
-
-    // Mirror configuring if mirrorring mode enabled
-    // (setting offsets and choosing opposite direction)
-    if (_MIRRORED_VER) { _y_mirror_offset = H-1; _dirY = -1; }
-    if (_MIRRORED_HOR) { _x_mirror_offset = W-1; _dirX = -1; }
-
-    /* End of mirror settings */
-
-
-
-    // Choosing every tile by X
+    // Tiles iterating by X
     for (uint8_t tileX = 0; tileX < W / _tileSizeX; tileX++) {
 
-        // Choosing every tile by Y
+        // Tiles iterating by Y
         for (uint8_t tileY = 0; tileY < H / _tileSizeY; tileY++) {
 
             // If tile was changed...
             if (_cgdTiles[tileX][tileY] == CHANGED) {
 
-                // Initializing tile start position with mirror offset
-                uint8_t _tileStartX = abs(tileX * _tileSizeX - _x_mirror_offset);
-                uint8_t _tileStartY = abs(tileY * _tileSizeY - _y_mirror_offset);
+                // Initializing tile start position
+                uint8_t _tileStartX = abs(tileX * _tileSizeX);
+                uint8_t _tileStartY = abs(tileY * _tileSizeY);
                 
-                // Initializing tile end position (tileStart +- (tileSize - 1), becuse next tile starts on tileSize)
-                uint8_t _tileEndX = abs(_tileStartX + ((_tileSizeX - 1) * _dirX));
-                uint8_t _tileEndY = abs(_tileStartY + ((_tileSizeY - 1) * _dirY));
+                // Initializing tile end position (tileSize - 1, next tile starts on tileSize)
+                uint8_t _tileEndX = abs(_tileStartX + (_tileSizeX - 1));
+                uint8_t _tileEndY = abs(_tileStartY + (_tileSizeY - 1));
 
-                // Sorting position for right address window and ordering
-                if (_tileStartY > _tileEndY) swap(_tileStartY, _tileEndY); // if _MIRRORED_VER
-                if (_tileStartX > _tileEndX) swap(_tileStartX, _tileEndX); // if _MIRRORED_HOR
 
                 // Putting tile address window
-                _setAdressWindow(_tileStartX,
+                _setAddressWindow(_tileStartX,
                                 _tileStartY,
                                 _tileEndX,
                                 _tileEndY);
 
 
-                // Selecting every column in tile (!= let it moving in two directions and +1 for avoid uint8_t overflow by _dirX)
-                for (uint8_t x = abs(_tileStartX - _x_mirror_offset)+1; x != abs(_tileEndX - _x_mirror_offset)+1 + _dirX; x += _dirX) {
+                // Selecting every column in tile
+                for (uint8_t x = _tileStartX; x <= _tileEndX; x++) {
 
-                    // Decrementing x to avoid uint8_t overflow and minimize arithmetics
-                    x -= 1;
+                    // Selecting every pixel in tile column
+                    for (uint8_t y = _tileStartY; y <= _tileEndY; y++) {
 
-                    // Selecting every pixel in tile column (with mirror offset, same as with columns)
-                    for (uint8_t y = abs(_tileStartY - _y_mirror_offset)+1; y != abs(_tileEndY - _y_mirror_offset)+1 + _dirY; y += _dirY) {
-                        
-                        // Drawing all tile pixels with decremented position
-                        _send_data16(_delta_buffer[x][y-1]);
+                        // Drawing all tile pixels
+                        _send_data16(_delta_buffer[x][y]);
 
                         // Replacing screen buffer with delta buffer (updated zone)
-                        _screen_buffer[x][y-1] = _delta_buffer[x][y-1];
+                        _screen_buffer[x][y] = _delta_buffer[x][y];
                     }
-
-                    // Incrementing x back
-                    x += 1;
                 }
 
                 // Resetting changed tile to default
@@ -570,9 +471,6 @@ void ST7735_80x160::_displayTiles() {
             }
         }
     }
-
-    // Debug timer
-    // printf("Tiles done for %llu us\n", to_us_since_boot(get_absolute_time()) - st);
 }
 
 /**
@@ -584,72 +482,27 @@ void ST7735_80x160::_displayTiles() {
  */
 void ST7735_80x160::_displayExpAW() {
 
-    // Debug timer
-    // absolute_time_t st = to_us_since_boot(get_absolute_time());
-
-    /* Mirror settings */
-
-    // Initializing mirror offsets by X and Y axis
-    uint8_t _y_mirror_offset = 0;
-    uint8_t _x_mirror_offset = 0;
-
-    // Initializing directions to move in buffer ExpAW part
-    int _dirY = 1;
-    int _dirX = 1;
-
-    // Mirror configuring if mirrorring mode enabled
-    // (setting offsets, choosing opposite direction and sorting verticles by swap)
-    if (_MIRRORED_VER) { _y_mirror_offset = H-1; _dirY = -1; swap(_startY, _endY); }
-    if (_MIRRORED_HOR) { _x_mirror_offset = W-1; _dirX = -1; swap(_startX, _endX); }
-
-    /* End of mirror settings */
+    // Putting AW to updated rectangle area
+    _setAddressWindow(_startX, _startY, _endX, _endY);
 
 
+    // ExpAW Column iterating
+    for (uint8_t x = _startX; x <= _endX; x++) {
 
-    // Putting AW to updated rectangle area with mirror offsets
-    _setAdressWindow(abs(_startX - _x_mirror_offset),
-                    abs(_startY - _y_mirror_offset),
-                    abs(_endX - _x_mirror_offset),
-                    abs(_endY - _y_mirror_offset));
-
-    // Choosing every column in ExpAW (!= let cycle moving in two directions, +1 to avoid uint8_t overflow caused !=)
-    for (uint8_t x = _startX+1; x != _endX+1 + _dirX; x += _dirX) {
-
-        // Decrementing x to avoid uint8_t overflow
-        x -= 1;
-
-        // Choosing every pixel in column (same as x)
-        for (uint8_t y = _startY+1; y != _endY+1 + _dirY; y += _dirY) {
+        // Choosing every pixel in column
+        for (uint8_t y = _startY; y <= _endY; y++) {
 
             // Sending pixel from buffer to display
-            _send_data16(_delta_buffer[x][y-1]);
+            _send_data16(_delta_buffer[x][y]);
 
             // Replacing screen buffer with delta buffer (updated zone)
-            _screen_buffer[x][y-1] = _delta_buffer[x][y-1];
+            _screen_buffer[x][y] = _delta_buffer[x][y];
         }
-
-        // Incrementing x back
-        x += 1;
     }
 
-    // Swapping verticles back (mirror wrong ExpAW positions fix)
-    if (_MIRRORED_VER) swap(_startY, _endY);
-    if (_MIRRORED_HOR) swap(_startX, _endX);
-
-    // If screen changed without any mirroring... (mirror bad ExpAW positions fix)
-    if (!_screenWasMirrored) {
-
-        // Setting ExpAW positions to default
-        _startX = W, _startY = H; // Lowest
-        _endX = 0,   _endY = 0;   // Highest
-    }
-    
-    // Setting screen mirrored bool to default
-    // (sets ExpAW positions to default next time if mirror wasn't changed)
-    _screenWasMirrored = false;
-
-    // Debug timer
-    // printf("ExpAW done for %llu us\n", to_us_since_boot(get_absolute_time()) - st);
+    // Setting ExpAW positions to default
+    _startX = W, _startY = H; // Lowest
+    _endX = 0,   _endY = 0;   // Highest
 }
 
 /* End of private methods */
@@ -660,52 +513,51 @@ void ST7735_80x160::_displayExpAW() {
 
 // --- Get data methods ---
 
-
 /**
- * @brief Returns SCK (SCL on board) pin from class constructor
+ * @brief Returns SCK (SCL) pin given in class constructor
  * 
  * @since v1
 */
 uint8_t ST7735_80x160::getPinSCK()      const  { return _PIN_SCK;  }
 /**
- * @brief Returns MOSI (SDA on board) pin from class constructor
+ * @brief Returns MOSI (SDA) pin given in class constructor
  * 
  * @since v1
 */
 uint8_t ST7735_80x160::getPinMOSI()     const  { return _PIN_MOSI; }
 /**
- * @brief Returns RST (RES on board) pin from class constructor
+ * @brief Returns RST (RES) pin given in class constructor
  * 
  * @since v1
 */
 uint8_t ST7735_80x160::getPinRST()      const  { return _PIN_RST;  }
 /**
- * @brief Returns DC pin from class constructor
+ * @brief Returns DC pin given in class constructor
  * 
  * @since v1
 */
 uint8_t ST7735_80x160::getPinDC()       const  { return _PIN_DC;   }
 /**
- * @brief Returns CS pin from class constructor
+ * @brief Returns CS pin given in class constructor
  * 
  * @since v1
 */
 uint8_t ST7735_80x160::getPinCS()       const  { return _PIN_CS;   }
 /**
- * @brief Returns BLK pin from class constructor
+ * @brief Returns BLK pin given in class constructor
  * 
  * @since v1
 */
 uint8_t ST7735_80x160::getPinBLK()      const  { return _PIN_BLK;  }
 
 /**
- * @brief Returns display SPI port (*3987584 - spi0 or *4003968 - spi1)
+ * @brief Returns display SPI port (*3987584 - spi0 / *4003968 - spi1)
  * 
  * @since v1
 */
 spi_inst_t* ST7735_80x160::getSpiPort() const  { return _SPI_PORT; }
 /**
- * @brief Returns current display channel frequency (default - 33MHz)
+ * @brief Returns current SPI channel frequency (default - 33MHz)
  * 
  * @since v1
 */
@@ -729,29 +581,34 @@ bool ST7735_80x160::getColorInversion() const  { return _COLOR_INVERSION; }
  * @since v3
 */
 int ST7735_80x160::getDisplayingMode()  const  { return _DISPLAYING_MODE; }
+/**
+ * @brief Returns current tiles size (Tiles Displaying mode)
+ * 
+ * @since v4
+*/
+uint8_t ST7735_80x160::getTileSize()    const  { return _tileSizeY;       }
 
 /**
- * @brief Returns current vertical mirror mode
+ * @brief Returns current vertical mirrorring
  * 
  * @since v3
 */
 bool ST7735_80x160::getMirrorVer()      const  { return _MIRRORED_VER; }
 /**
- * @brief Returns current horizontal mirror mode
+ * @brief Returns current horizontal mirrorring
  * 
  * @since v3
 */
 bool ST7735_80x160::getMirrorHor()      const  { return _MIRRORED_HOR; }
 
 /**
- *  @brief Returns pixel on screen in argument position
+ *  @brief Returns pixel on screen in specified position
  * 
  * Returns pixel color in screen buffer, that fills only after display() method.
  * 
  * @since v3
 */
-uint16_t ST7735_80x160::getPixel(uint8_t x, uint8_t y) const { return _screen_buffer[x][y]; }
-
+uint16_t ST7735_80x160::getPixel(uint8_t x, uint8_t y) const { return (_screen_buffer[x][y] << 8) | (_screen_buffer[x][y] >> 8); }
 /**
  * @brief Returns pixel on screen before it's displayed
  * 
@@ -759,14 +616,190 @@ uint16_t ST7735_80x160::getPixel(uint8_t x, uint8_t y) const { return _screen_bu
  * 
  * @since v3
 */
-uint16_t ST7735_80x160::getPixelDelta(uint8_t x, uint8_t y) const { return _delta_buffer[x][y]; }
+uint16_t ST7735_80x160::getPixelDelta(uint8_t x, uint8_t y) const { return (_delta_buffer[x][y] << 8) | (_delta_buffer[x][y] >> 8); }
+
+
+
+// --- Settings methods ---
+
+/**
+ * @brief Sets SPI frequency
+ * 
+ * Reinitializes SPI port with stated baudrate.
+ * 
+ * @param baudrate data transfer rate in HZ 
+*/
+void ST7735_80x160::setSpiFrequency(uint32_t baudrate) {
+
+    // Changing private frequency (or baudrate)
+    _SPI_FREQ = baudrate;
+
+    // Reinitializing SPI port with updated rate
+    spi_init(_SPI_PORT, _SPI_FREQ);
+}
+
+/**
+ * @brief Sets display brightness
+ * 
+ * Configures display PWM brightness only if BLK pin connected,
+ * 
+ * uses gamma correction to smooth default unlinear PWM levels.
+ * 
+ * Current PWM frequency on RPi Pico - 9.7 kHz to minimize blinking.
+ * 
+ * To choose brightness, use relevant BRIGHTNESS_* macroses.
+ * 
+ * @param brightness brightness rate from 0 to 100 percent
+ * 
+ * @note Wikipedia opinion - https://en.wikipedia.org/wiki/Gamma_correction
+ * 
+ * @since v3
+ */
+void ST7735_80x160::setBrightness(uint8_t brightness) {
+
+    // If brightness control pin connected...
+    if (_PIN_BLK) {
+        
+        // Setting private brightness percentage to new level
+        _CUR_BRIGHTNESS = brightness;
+        
+        // Converting percentage to byte (0-100 -> 0-255)
+        brightness = MAX_WRAP * brightness / 100;
+
+        // Setting PWM brightness to given level with gamma correction for linear brightness appear
+        // Gamma function: (brightness float / wrap) ^ GAMMA_FACTOR * wrap
+        pwm_set_gpio_level(_PIN_BLK, (uint16_t)(
+                            pow(float(brightness) / MAX_WRAP, GAMMA_FACTOR) * MAX_WRAP));
+    }
+}
+
+/**
+ * @brief Sets colors inversion
+ * 
+ * When turned on, colors changes this way: RED (F800) -> CYAN, GREEN (07E0) -> PURPLE,
+ * 
+ * BLUE (001F) -> YELLOW, WHITE (FFFF) -> BLACK etc.
+ * 
+ * To enable/disable, use relevant INVERSION_(ON/OFF) macroses.
+ * 
+ * @param inversion on true - color inversion enables, false - disables
+ * 
+ * @since v1
+ */
+void ST7735_80x160::setColorInversion(bool inversion) {
+
+    // Setting private inversion
+    _COLOR_INVERSION = inversion;
+
+    // Sending color inversion command (paradoxically, but colors inverted by default and on/off commands inverted too)
+    if (_COLOR_INVERSION) _send_command(CMD_COLOR_INV_OFF);
+    else                  _send_command(CMD_COLOR_INV_ON);
+}
+
+/**
+ * @brief Sets displaying mode
+ * 
+ * Displaying mode - way to update screen information (check docs).
+ *
+ * Available modes:
+ * 
+ * +   0 - Fullscreen mode (very stable, default) -> FULLSCREEN_MODE
+ * 
+ * +   1 - Column Active Zone -> CAZ_MODE
+ * 
+ * +   2 - Row Active Zone -> RAZ_MODE
+ * 
+ * +   3 - Pixel Address Window -> PAW_MODE
+ * 
+ * +   4 - Tile Displaying mode -> TILE_MODE
+ * 
+ * +   5 - Expandable address Window -> EXPAW_MODE
+ * 
+ * To choose them, use relevant *_MODE macroses.
+ * 
+ * @param displayingMode selected DM (value from 0 to 5)
+ * 
+ * @since v1
+ */
+void ST7735_80x160::setDisplayingMode(int displayingMode) {
+
+    // Changing private _DISPLAYING_MODE used by display()
+    _DISPLAYING_MODE = displayingMode;
+}
+
+/**
+ * @brief Mirrors screen by horizontal/vertical directions
+ * 
+ * Sets screen XY axis (y - ver, x - hor) mirroring by 2 booleans (use mirror macroses down below).
+ * 
+ * To mirror, use relevant *_MIRROR macroses.
+ * 
+ * @param verMirror Y mirroring bool (NO_VER_MIRROR -> 0, VER_MIRROR -> 1)
+ * @param horMirrror X mirroring bool (NO_HOR_MIRROR -> 0, HOR_MIRROR -> 1)
+ * 
+ * @since v3
+ */
+void ST7735_80x160::setScreenMirror(bool verMirror, bool horMirror) {
+
+    // Changing private mirrors
+    _MIRRORED_VER = verMirror; // By Y
+    _MIRRORED_HOR = horMirror; // By X
+
+    // Initializing address direction byte (0x08 or bit 3 for RGB colors)
+    uint8_t _dir_byte = 0x08;
+
+    // Assigning correct byte value
+    if      (!verMirror && horMirror) _dir_byte = 0x48; // Horizontal (Bit 6)
+    else if (verMirror && !horMirror) _dir_byte = 0x88; // Vertical (Bit 7)
+    else if (verMirror && horMirror)  _dir_byte = 0xC8; // Hor + Ver (Bit 6 + 7)
+
+    // Sending mirror command and data
+    _send_command(CMD_ADDRESS_DIR);
+    _send_data(_dir_byte);
+}
+
+/**
+ * @brief Sets tile size used by Tile Displaying mode
+ * 
+ * To change tile size, use relevant TILE_SIZE_* macroses.
+ * 
+ * @param tileSize new tile size by Y (2 times more by X)
+ * 
+ * @since v4
+ */
+void ST7735_80x160::setTileSize(uint8_t tileSize) {
+
+    // Deleting Y part of 2D dynamic array
+    for (uint8_t x = 0; x < W / _tileSizeX; x++) delete[] _cgdTiles[x];
+
+    // Deleting X part of array
+    delete[] _cgdTiles;
+
+    // Changing private tile size properties
+    _tileSizeX = tileSize * 2;
+    _tileSizeY = tileSize;
+
+    // Reinitializing tiles array with new sizes
+    _tiles_setup(tileSize);
+
+    // Choosing every column
+    for (uint8_t xTile = 0; xTile < W / _tileSizeX; xTile++) {
+
+        // Choosing every tile
+        for (uint8_t yTile = 0; yTile < H / _tileSizeY; yTile++) {
+
+            // Setting 'CHANGED' value to re-draw all tiles next display() call
+            _cgdTiles[xTile][yTile] = CHANGED;
+        }
+    }
+}
 
 
 
 // --- General methods ---
 
 /**
- * @brief Configures display settings (SPI, BLK and CMD)
+ * @brief Configures display settings (SPI, BLK, CMD, Tile DM)
  * 
  * @since v1
  */
@@ -783,6 +816,9 @@ void ST7735_80x160::init() {
 
     // LCD CMD setup
     _cmd_setup();
+
+    // Tile Displaying mode setup
+    _tiles_setup(TILE_SIZE_DEFAULT);
 }
 
 /**
@@ -792,7 +828,7 @@ void ST7735_80x160::init() {
  * 
  * buffer can be filled with drawPixel(), fillRect() or other graphics functions.
  * 
- * Displaying mode picks on with setDisplayingMode() method (check docs).
+ * Displaying mode chooses by setDisplayingMode() method (check docs).
  * 
  * @since v1
  */
@@ -803,8 +839,8 @@ void ST7735_80x160::display() {
         default:          _displayFullscreen(); break;  // Fullscreen mode
         case CAZ_MODE:    _displayCAZ();        break;  // Column Active Zone
         case RAZ_MODE:    _displayRAZ();        break;  // Row Active Zone
-        case PAW_MODE:    _displayPAW();        break;  // Pixel Address Window
-        case TILE_MODE:   _displayTiles();      break;  // Tile displaying mode
+        case PAW_MODE:    _displayPAW();        break;  // Pixel Address Window address
+        case TILE_MODE:   _displayTiles();      break;  // Tile Displaying mode
         case EXPAW_MODE:  _displayExpAW();      break;  // Expandable Address Window
     }
 }
@@ -818,14 +854,17 @@ void ST7735_80x160::display() {
  * 
  * Mainly called after init() to clean screen from noise and old data.
  * 
- * @param color fills up cleared area pixels (default = BLACK)
+ * @param color fills up cleared area pixels (default - BLACK)
  * 
  * @since v1
  */
-void ST7735_80x160::clearDisplay(uint16_t color) {
+void ST7735_80x160::clearDisplayForce(uint16_t color) {
 
-    // Address window with screen size
-    _setAdressWindow(0, 0, W-1, H-1);
+    // Putting address window with screen size
+    _setAddressWindow(0, 0, W-1, H-1);
+
+    // Converting color to Big Endian format
+    color = (color << 8) | (color >> 8);
 
     // Choosing every column
     for (uint8_t x = 0; x < W; x++) {
@@ -836,7 +875,7 @@ void ST7735_80x160::clearDisplay(uint16_t color) {
             // Sending pixel without a buffer
             _send_data16(color);
 
-            // Clearing screen and delta buffers with arg color
+            // Clearing screen and delta buffers with given color
             _screen_buffer[x][y] = color;
             _delta_buffer[x][y] = color;
 
@@ -856,140 +895,32 @@ void ST7735_80x160::clearDisplay(uint16_t color) {
 }
 
 
-// --- Settings methods ---
-
-/**
- * @brief Sets SPI frequency
- * 
- * Reinitializes SPI port with argument baudrate.
- * 
- * @param baudrate data transfer rate in HZ 
-*/
-void ST7735_80x160::setSpiFrequency(uint32_t baudrate) {
-
-    // Changing private frequency (or baudrate) property
-    _SPI_FREQ = baudrate;
-
-    // Reinitializing SPI port with updated rate
-    spi_init(_SPI_PORT, _SPI_FREQ);
-}
-
-/**
- * @brief Sets display brightness
- * 
- * Configures display PWM brightness only if BLK pin connected,
- * 
- * uses gamma correction to smooth default unlinear PWM levels.
- * 
- * Current PWM frequency on RPi Pico - 9.7 kHz to minimize blinking.
- * 
- * @param brightness brightness rate from 0 to 100 percent
- * 
- * @note Wikipedia opinion - https://en.wikipedia.org/wiki/Gamma_correction
- * 
- * @since v3
- */
-void ST7735_80x160::setBrightness(uint8_t brightness) {
-
-    // If brightness control pin connected...
-    if (_PIN_BLK) {
-        
-        // Setting private brightness percentage property to argument level
-        _CUR_BRIGHTNESS = brightness;
-        
-        // Converting percentage to byte (0-100 -> 0-255)
-        brightness = MAX_WRAP * brightness / 100;
-
-        // Setting PWM brightness to argument level with gamma correction for linear brightness appear
-        // Gamma function: (brightness float / wrap) ^ GAMMA_FACTOR * wrap
-        pwm_set_gpio_level(_PIN_BLK, (uint16_t)(
-                            pow(float(brightness) / MAX_WRAP, GAMMA_FACTOR) * MAX_WRAP));
-    }
-}
-
-/**
- * @brief Sets colors inversion
- * 
- * When turned on, colors changes this way: RED (F800) -> CYAN, GREEN (07E0) -> PURPLE,
- * 
- * BLUE (001F) -> YELLOW, WHITE (FFFF) -> BLACK etc.
- * 
- * @param inversion on true - color inversion enables, false - disables
- * 
- * @since v1
- */
-void ST7735_80x160::setColorInversion(bool inversion) {
-
-    // Setting private inversion property
-    _COLOR_INVERSION = inversion;
-
-    // Sending color inversion command (paradoxically, but colors inverted by default and on/off commands inverted too)
-    if (_COLOR_INVERSION) _send_command(CMD_COLOR_INV_OFF);
-    else                  _send_command(CMD_COLOR_INV_ON);
-}
-
-/**
- * @brief Sets displaying mode
- * 
- * Displaying mode - way to show/update screen information (check docs).
- *
- * Available modes:
- * 
- * +   0 - Fullscreen mode (stable, but slowest) (default) -> FULLSCREEN_MODE
- * 
- * +   1 - Column Active Zone (unstable, fastest in most cases) -> CAZ_MODE
- * 
- * +   2 - Row Active Zone (unstable, fastest in most cases) -> RAZ_MODE
- * 
- * +   3 - Pixel Address Window (quite unstable, fastest in most cases) -> PAW_MODE
- * 
- * +   4 - Tile displaying mode (quite unstable, fastest in few cases) -> TILE_MODE
- * 
- * +   5 - Expandable Adress Window (quite unstable, fastest in few cases) -> EXPAW_MODE
- * 
- * To choose them, use relevant *_MODE macroses.
- * 
- * @param displayingMode selected DM (macros from 0 to 4)
- * 
- * @since v1
- */
-void ST7735_80x160::setDisplayingMode(int displayingMode) {
-
-    // Changing private property _DISPLAYING_MODE used by display()
-    _DISPLAYING_MODE = displayingMode;
-}
-
-/**
- * @brief Mirrors screen by horizontal/vertical directions
- * 
- * Sets screen XY axis (x - ver, y - hor) mirroring by 2 bool args (use mirror macroses down below).
- * 
- * @param verMirror X mirroring bool (NO_VER_MIRROR -> 0, VER_MIRROR -> 1)
- * @param horMirrror Y mirroring bool (NO_HOR_MIRROR -> 0, HOR_MIRROR -> 1)
- * 
- * @since v3
- */
-void ST7735_80x160::setScreenMirror(bool verMirror, bool horMirror) {
-
-    // If screen was mirrored - it available to update by display() method
-    if (_MIRRORED_VER != verMirror || _MIRRORED_HOR != horMirror) { _screenWasMirrored = true; }
-
-    // Changing private mirror properties used by display() wrapper
-    _MIRRORED_VER = verMirror; // By X
-    _MIRRORED_HOR = horMirror; // By Y
-}
-
 
 //  --- Graphics methods ---
 
 /**
- * @brief Draws pixel
+ * @brief Clears display from any GFX
  * 
- * Moves pixel address and color to screen buffer.
+ * Wrapper method for fillScreen(), that replaces delta buffer with param color
+ * 
+ * @param color buffer replacement color (default - BLACK)
+ * 
+ * @since v4
+ */
+void ST7735_80x160::clearDisplay(uint16_t color) {
+
+    // Filling screen with color
+    fillScreen(color);
+}
+
+/**
+ * @brief Draws pixel on screen
+ * 
+ * Moves pixel address and color to buffer.
  * 
  * Method used by all other graphics methods.
  * 
- * For color better use macroses, like RED, GREEN, BLUE, WHITE etc.
+ * For color use relevant macroses, like RED, GREEN, BLUE, WHITE etc.
  * 
  * @param x pixel X position
  * @param y pixel Y position
@@ -1001,6 +932,9 @@ void ST7735_80x160::drawPixel(uint8_t x, uint8_t y, uint16_t color) {
 
     // Out of bounds error handler
     if (x > W-1 || y > H-1 ) return;
+
+    // Converting color to Big Endian format
+    color = (color << 8) | (color >> 8);
 
     // If current pixel with new color...
     if (_screen_buffer[x][y] != color) {
@@ -1030,7 +964,7 @@ void ST7735_80x160::drawPixel(uint8_t x, uint8_t y, uint16_t color) {
 /**
  * @brief Fills rectangle area with color
  * 
- * Moves rectangle information to screen buffer.
+ * Moves rectangle information to buffer.
  * 
  * For color use macroses, like RED, GREEN, BLUE, WHITE etc.
  * 
@@ -1062,7 +996,7 @@ void ST7735_80x160::fillRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uin
 /**
  * @brief Fills screen with color
  * 
- * Moves rectangle area with size of screen to screen buffer.
+ * Moves rectangle area with size of screen to buffer.
  * 
  * For color better use macroses, like RED, GREEN, BLUE, WHITE etc.
  * 
@@ -1079,7 +1013,7 @@ void ST7735_80x160::fillScreen(uint16_t color) {
 /**
  * @brief Draws vertical line
  * 
- * Moves rectangle area with same X to screen buffer.
+ * Moves V-line to buffer.
  * 
  * @param x V-line start X position
  * @param y V-line start Y position
@@ -1097,7 +1031,7 @@ void ST7735_80x160::drawVLine(uint8_t x, uint8_t y, uint8_t length, uint16_t col
 /**
  * @brief Draws horizontal line
  * 
- * Moves rectangle area with same Y to screen buffer.
+ * Moves H-line to buffer.
  * 
  * @param x H-line start X position
  * @param y H-line start Y position
@@ -1115,7 +1049,7 @@ void ST7735_80x160::drawHLine(uint8_t x, uint8_t y, uint8_t length, uint16_t col
 /**
  * @brief Draws rectangle outline
  * 
- * Moves 2 V-lines and 2 H-lines at rectangle verticles to screen buffer.
+ * Moves rectangle outline to buffer.
  * 
  * @param x1 outline start X position
  * @param y1 outline start Y position
@@ -1131,7 +1065,7 @@ void ST7735_80x160::drawRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uin
     uint8_t _vLen =  y2 - y1 + 1;
     uint8_t _hLen =  x2 - x1 - 1;
 
-    // Drawing rectagle with 2 H-lines and 2 V-lines
+    // Drawing rectagle by 2 H-lines and 2 V-lines
     drawVLine(x1, y1, _vLen, color);
     drawVLine(x2, y1, _vLen, color);
 
@@ -1142,7 +1076,7 @@ void ST7735_80x160::drawRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uin
 
 
 /**
- * @brief Draws line from anywhere to anywhere
+ * @brief Draws line from any position
  * 
  * This method based on Bresenham's line algorithm - very fast way to calculate every line
  * 
@@ -1174,7 +1108,7 @@ void ST7735_80x160::drawLine(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uin
     // Infinite loop while we not reach last pixel {x2, y2}
     for (;;) {
 
-        // Single drawing function
+        // Drawing current pixel of line
         drawPixel(x1, y1, color);
 
         // End line reaching check
@@ -1200,7 +1134,7 @@ void ST7735_80x160::drawLine(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uin
 /**
  * @brief Draws triangle outline
  * 
- * Moves 3 Bresenham's lines from/to verticles information to screen buffer.
+ * Moves triangle outline to buffer.
  * 
  * @param x1 first verticle X position
  * @param y1 first verticle Y position
@@ -1214,7 +1148,7 @@ void ST7735_80x160::drawLine(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uin
  */
 void ST7735_80x160::drawTriangle(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint8_t x3, uint8_t y3, uint16_t color) {
 
-    // Actually drawing 3 lines with argument coordinates
+    // Actually drawing 3 lines in stated coordinates
     drawLine(x1, y1, x2, y2, color);
     drawLine(x2, y2, x3, y3, color);
     drawLine(x3, y3, x1, y1, color);
@@ -1299,7 +1233,7 @@ void ST7735_80x160::fillTriangle(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2,
 /**
  * @brief Draws circle outline
  * 
- * This method use Bresenham's (or Midpoint) algorithm for circles - it handle one 1/8 segment, but draws
+ * This method use Bresenham's (or Midpoint) algorithm for circles - it handles one 1/8 segment, but draws
  * 
  * all (by offsetting) - they are symmetric. Uses "error" value to correct every segment pixel height.
  * 
