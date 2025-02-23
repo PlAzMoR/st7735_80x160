@@ -2,6 +2,7 @@
 #ifndef ST7735_H
 #define ST7735_H
 
+
 /* --- Libraries --- */
 
 // Required hardware libraries  
@@ -325,20 +326,20 @@ class ST7735_80x160 {
     //  @skip --- GFX methods ---
     void clearDisplay(uint16_t color = BLACK);
 
-    void drawPixel(uint8_t x, uint8_t y, uint16_t color);
-    void fillRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint16_t color);
+    void drawPixel(int16_t x, int16_t y, uint16_t color);
+    void fillRect(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color);
     void fillScreen(uint16_t color);
 
-    void drawVLine(uint8_t x, uint8_t y, uint8_t length, uint16_t color);
-    void drawHLine(uint8_t x, uint8_t y, uint8_t length, uint16_t color);
-    void drawRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint16_t color);
+    void drawVLine(int16_t x, int16_t y, uint8_t length, uint16_t color);
+    void drawHLine(int16_t x, int16_t y, uint8_t length, uint16_t color);
+    void drawRect(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color);
 
-    void drawLine(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint16_t color);
-    void drawTriangle(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint8_t x3, uint8_t y3, uint16_t color);
-    void fillTriangle(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint8_t x3, uint8_t y3, uint16_t color);
+    void drawLine(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color);
+    void drawTriangle(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t x3, int16_t y3, uint16_t color);
+    void fillTriangle(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t x3, int16_t y3, uint16_t color);
 
-    void drawCircle(uint8_t x0, uint8_t y0, uint8_t radius, uint16_t color);
-    void fillCircle(uint8_t x0, uint8_t y0, uint8_t radius, uint16_t color);
+    void drawCircle(int16_t x0, int16_t y0, uint8_t radius, uint16_t color);
+    void fillCircle(int16_t x0, int16_t y0, uint8_t radius, uint16_t color);
 
     /* End of public methods */
 };

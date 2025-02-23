@@ -928,10 +928,10 @@ void ST7735_80x160::clearDisplay(uint16_t color) {
  * 
  * @since v1
  */
-void ST7735_80x160::drawPixel(uint8_t x, uint8_t y, uint16_t color) {
+void ST7735_80x160::drawPixel(int16_t x, int16_t y, uint16_t color) {
 
     // Out of bounds error handler
-    if (x > W-1 || y > H-1 ) return;
+    if (x > W-1 || y > H-1 || x < 0 || y < 0) return;
 
     // Converting color to Big Endian format
     color = (color << 8) | (color >> 8);
@@ -976,17 +976,17 @@ void ST7735_80x160::drawPixel(uint8_t x, uint8_t y, uint16_t color) {
  * 
  * @since v1
  */
-void ST7735_80x160::fillRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint16_t color) {
+void ST7735_80x160::fillRect(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color) {
 
     // Swapping verticles if they inversed
     if (x1 > x2) swap(x1, x2);
     if (y1 > y2) swap(y1, y2);
 
     // Filling rectangle area with pixels
-    for (uint8_t x = x1; x <= x2; x++) {
+    for (int16_t x = x1; x <= x2; x++) {
 
-        for (uint8_t y = y1; y <= y2; y++) {
-            
+        for (int16_t y = y1; y <= y2; y++) {
+
             // Drawing pixel
             drawPixel(x, y, color);
         }
@@ -1022,7 +1022,7 @@ void ST7735_80x160::fillScreen(uint16_t color) {
  * 
  * @since v2
  */
-void ST7735_80x160::drawVLine(uint8_t x, uint8_t y, uint8_t length, uint16_t color) {
+void ST7735_80x160::drawVLine(int16_t x, int16_t y, uint8_t length, uint16_t color) {
 
     // Actually filling rectangle with 1 pixel width
     fillRect(x, y, x, y + length - 1, color);
@@ -1040,7 +1040,7 @@ void ST7735_80x160::drawVLine(uint8_t x, uint8_t y, uint8_t length, uint16_t col
  * 
  * @since v2
  */
-void ST7735_80x160::drawHLine(uint8_t x, uint8_t y, uint8_t length, uint16_t color) {
+void ST7735_80x160::drawHLine(int16_t x, int16_t y, uint8_t length, uint16_t color) {
 
     // Actually filling rectangle with 1 pixel height
     fillRect(x, y, x + length - 1, y, color);
@@ -1059,7 +1059,11 @@ void ST7735_80x160::drawHLine(uint8_t x, uint8_t y, uint8_t length, uint16_t col
  * 
  * @since v2
  */
-void ST7735_80x160::drawRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint16_t color) {
+void ST7735_80x160::drawRect(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color) {
+
+    // Swapping verticles if they inversed
+    if (x1 > x2) swap(x1, x2);
+    if (y1 > y2) swap(y1, y2);
 
     // Lines length definition
     uint8_t _vLen =  y2 - y1 + 1;
@@ -1092,15 +1096,15 @@ void ST7735_80x160::drawRect(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uin
  * 
  * @since v2
  */
-void ST7735_80x160::drawLine(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint16_t color) {
+void ST7735_80x160::drawLine(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color) {
 
     // Calculating differences between axis coordinates (actually cathets if line - hypotenuse)
-    uint8_t _diffX = abs(x2 - x1);
-    uint8_t _diffY = abs(y2 - y1);
+    int16_t _diffX = abs(x2 - x1);
+    int16_t _diffY = abs(y2 - y1);
 
     // Choosing drawing directions by X and Y axis
-    int _dirX = (x2 > x1) ? 1 : -1;
-    int _dirY = (y2 > y1) ? 1 : -1;
+    int8_t _dirX = (x2 > x1) ? 1 : -1;
+    int8_t _dirY = (y2 > y1) ? 1 : -1;
 
     // Initializing error - deviation from ideal line (algorithm base)
     int _error = _diffX - _diffY;
@@ -1146,7 +1150,7 @@ void ST7735_80x160::drawLine(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uin
  * 
  * @since v2
  */
-void ST7735_80x160::drawTriangle(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint8_t x3, uint8_t y3, uint16_t color) {
+void ST7735_80x160::drawTriangle(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t x3, int16_t y3, uint16_t color) {
 
     // Actually drawing 3 lines in stated coordinates
     drawLine(x1, y1, x2, y2, color);
@@ -1169,7 +1173,7 @@ void ST7735_80x160::drawTriangle(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2,
  * 
  * @since v2
  */
-void ST7735_80x160::fillTriangle(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, uint8_t x3, uint8_t y3, uint16_t color) {
+void ST7735_80x160::fillTriangle(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t x3, int16_t y3, uint16_t color) {
 
     // Sorting verticles by Y (v1 <= v2 <= v3)
     if (y1 > y2) { swap(y1, y2); swap(x1, x2); }
@@ -1246,7 +1250,7 @@ void ST7735_80x160::fillTriangle(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2,
  * 
  * @since v2
  */
-void ST7735_80x160::drawCircle(uint8_t x0, uint8_t y0, uint8_t radius, uint16_t color) {
+void ST7735_80x160::drawCircle(int16_t x0, int16_t y0, uint8_t radius, uint16_t color) {
 
     // Zero radius error handler (else it draws circle with 255 radius)
     if (radius == 0) {
@@ -1255,8 +1259,8 @@ void ST7735_80x160::drawCircle(uint8_t x0, uint8_t y0, uint8_t radius, uint16_t 
     }
 
     // Initializing coordinates from circle center for pixels in 1/8 symmetric segment
-    uint8_t _x = 0;
-    uint8_t _y = radius;
+    int16_t _x = 0;
+    int16_t _y = radius;
 
     // Error value, used to correct pixels height
     int _error = 1 - radius;
@@ -1305,11 +1309,11 @@ void ST7735_80x160::drawCircle(uint8_t x0, uint8_t y0, uint8_t radius, uint16_t 
  * 
  * @since v2
  */
-void ST7735_80x160::fillCircle(uint8_t x0, uint8_t y0, uint8_t radius, uint16_t color) {
+void ST7735_80x160::fillCircle(int16_t x0, int16_t y0, uint8_t radius, uint16_t color) {
 
     // Initializing pixels coordinates from circle center
-    uint8_t _x = 0;
-    uint8_t _y = radius;
+    int16_t _x = 0;
+    int16_t _y = radius;
 
     // Error value, used to correct pixels height
     int _error = 1 - radius;
