@@ -330,16 +330,19 @@ class ST7735_80x160 {
     void fillRect(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color);
     void fillScreen(uint16_t color);
 
-    void drawVLine(int16_t x, int16_t y, uint8_t length, uint16_t color);
-    void drawHLine(int16_t x, int16_t y, uint8_t length, uint16_t color);
-    void drawRect(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color);
+    void drawVLine(int16_t x, int16_t y, int16_t length, uint16_t color);
+    void drawHLine(int16_t x, int16_t y, int16_t length, uint16_t color);
+    void drawRect(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t thickness, uint16_t color);
 
     void drawLine(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color);
     void drawTriangle(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t x3, int16_t y3, uint16_t color);
     void fillTriangle(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t x3, int16_t y3, uint16_t color);
 
-    void drawCircle(int16_t x0, int16_t y0, uint8_t radius, uint16_t color);
-    void fillCircle(int16_t x0, int16_t y0, uint8_t radius, uint16_t color);
+    void drawCircle(int16_t x0, int16_t y0, int16_t rad, uint16_t color);
+    void fillCircle(int16_t x0, int16_t y0, int16_t rad, uint16_t color);
+
+    void drawRoundRect(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t rad, uint16_t color);
+    void fillRoundRect(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t rad, uint16_t color);
 
     /* End of public methods */
 };

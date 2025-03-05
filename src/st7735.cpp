@@ -153,9 +153,9 @@ void ST7735_80x160::_reset_display() {
 
     // Sending short signal to pin
     gpio_put(_PIN_RST, 0);
-    sleep_ms(50);
+    sleep_ms(20);
     gpio_put(_PIN_RST, 1);
-    sleep_ms(50);
+    sleep_ms(20);
 }
 
 /**
@@ -1022,7 +1022,12 @@ void ST7735_80x160::fillScreen(uint16_t color) {
  * 
  * @since v2
  */
-void ST7735_80x160::drawVLine(int16_t x, int16_t y, uint8_t length, uint16_t color) {
+void ST7735_80x160::drawVLine(int16_t x, int16_t y, int16_t length, uint16_t color) {
+
+    // Zero length handler
+    if (length == 0) return;
+    // Bad negative length fix
+    else if (length < 0) length += 2;
 
     // Actually filling rectangle with 1 pixel width
     fillRect(x, y, x, y + length - 1, color);
@@ -1040,7 +1045,12 @@ void ST7735_80x160::drawVLine(int16_t x, int16_t y, uint8_t length, uint16_t col
  * 
  * @since v2
  */
-void ST7735_80x160::drawHLine(int16_t x, int16_t y, uint8_t length, uint16_t color) {
+void ST7735_80x160::drawHLine(int16_t x, int16_t y, int16_t length, uint16_t color) {
+
+    // Zero length handler
+    if (length == 0) return;
+    // Bad negative length fix
+    else if (length < 0) length += 2;
 
     // Actually filling rectangle with 1 pixel height
     fillRect(x, y, x + length - 1, y, color);
@@ -1059,23 +1069,30 @@ void ST7735_80x160::drawHLine(int16_t x, int16_t y, uint8_t length, uint16_t col
  * 
  * @since v2
  */
-void ST7735_80x160::drawRect(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color) {
+void ST7735_80x160::drawRect(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t thickness, uint16_t color) {
 
     // Swapping verticles if they inversed
     if (x1 > x2) swap(x1, x2);
     if (y1 > y2) swap(y1, y2);
 
+    // Over-thickness handler
+    if (thickness > (x2 - x1) / 2 || thickness > (y2 - y1) / 2) { fillRect(x1, y1, x2, y2, color); return; }
+
     // Lines length definition
-    uint8_t _vLen =  y2 - y1 + 1;
-    uint8_t _hLen =  x2 - x1 - 1;
+    int16_t lenHor =  x2 - x1;
+    int16_t lenVer =  y2 - y1;
 
-    // Drawing rectagle by 2 H-lines and 2 V-lines
-    drawVLine(x1, y1, _vLen, color);
-    drawVLine(x2, y1, _vLen, color);
+    // Iterating layers (from outer to inner)
+    for (int16_t curLayer = 0; curLayer < thickness; curLayer++) {
 
-    // Increment start x to clip pixels
-    drawHLine(x1 + 1, y1, _hLen, color);
-    drawHLine(x1 + 1, y2, _hLen, color);
+        // Drawing rectagle by 2 H-lines and 2 V-lines with offset
+        drawHLine(x1+1, y1, lenHor, color); drawVLine(x1, y1,   lenVer, color);
+        drawHLine(x1,   y2, lenHor, color); drawVLine(x2, y1+1, lenVer, color);
+
+        // Decrementing values to draw next layer
+        x1++; x2--; lenHor--;
+        y1++; y2--; lenVer--;
+    }
 }
 
 
@@ -1099,15 +1116,15 @@ void ST7735_80x160::drawRect(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uin
 void ST7735_80x160::drawLine(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uint16_t color) {
 
     // Calculating differences between axis coordinates (actually cathets if line - hypotenuse)
-    int16_t _diffX = abs(x2 - x1);
-    int16_t _diffY = abs(y2 - y1);
+    int16_t diffX = abs(x2 - x1);
+    int16_t diffY = abs(y2 - y1);
 
     // Choosing drawing directions by X and Y axis
-    int8_t _dirX = (x2 > x1) ? 1 : -1;
-    int8_t _dirY = (y2 > y1) ? 1 : -1;
+    int8_t dirX = (x2 > x1) ? 1 : -1;
+    int8_t dirY = (y2 > y1) ? 1 : -1;
 
     // Initializing error - deviation from ideal line (algorithm base)
-    int _error = _diffX - _diffY;
+    int16_t error = diffX - diffY;
 
     // Infinite loop while we not reach last pixel {x2, y2}
     for (;;) {
@@ -1119,18 +1136,18 @@ void ST7735_80x160::drawLine(int16_t x1, int16_t y1, int16_t x2, int16_t y2, uin
         if (x1 == x2 && y1 == y2) break;
 
         // Double error, used to simplify arithmetics
-        int _err2 = _error * 2;
+        int err2 = error * 2;
 
-        // If _err2 that big, we go along X to next pixel and decrease _diffY impact
-        if (_err2 > -_diffY) {
-            _error -= _diffY;
-            x1 += _dirX;
+        // If err2 that big, we go along X to next pixel and decrease diffY impact
+        if (err2 > -diffY) {
+            error -= diffY;
+            x1 += dirX;
         }
         
         // Same for Y axis
-        if (_err2 < _diffX) {
-            _error += _diffX;
-            y1 += _dirY;
+        if (err2 < diffX) {
+            error += diffX;
+            y1 += dirY;
         }
     }
 }
@@ -1190,47 +1207,47 @@ void ST7735_80x160::fillTriangle(int16_t x1, int16_t y1, int16_t x2, int16_t y2,
 
     // Initializing multiplied by 1000 (to remove slow fractional arithmetics)
     // X-offsets to increase _xStart and _xEnd by them
-    int _ofsX1 = (x2 - x1) * 1000 / (y2 - y1);
-    int _ofsX2 = (x3 - x1) * 1000 / (y3 - y1);
+    int ofsX1 = (x2 - x1) * 1000 / (y2 - y1);
+    int ofsX2 = (x3 - x1) * 1000 / (y3 - y1);
 
     // Initializing triangle filling H-lines multiplied start/end
-    int _xStart = x1 * 1000;
-    int _xEnd = x1 * 1000;
+    int xStart = x1 * 1000;
+    int xEnd = x1 * 1000;
 
-    // _lastY - value for flat-botommed triangles handling (fixes last broken line)
-    int _lastY = y2;
-    // _h - height of current H-line
-    int _h = y1;
+    // lastY - value for flat-botommed triangles handling (fixes last broken line)
+    int16_t lastY = y2;
+    // h - height of current H-line
+    int16_t h = y1;
 
     // Removing last line, if triangle is flat-botommed (thx to TFT_eSPI library :) )
-    if (y1 == y2) _lastY -= 1;
+    if (y1 == y2) lastY -= 1;
 
 
     // Bottom part of triangle filling cycle
-    for (/* h = y1 */; _h <= _lastY; _h++) {
+    for (/* h = y1 */; h <= lastY; h++) {
 
         // H-line filling (fillRect() instead of drawHLine(), it's more convenient)
-        fillRect(round3(_xStart) / 1000, _h, round3(_xEnd) / 1000, _h, color);
+        fillRect(round3(xStart) / 1000, h, round3(xEnd) / 1000, h, color);
 
         // Move start/end with relevant offsets
-        _xStart += _ofsX1;
-        _xEnd += _ofsX2;
+        xStart += ofsX1;
+        xEnd += ofsX2;
     }
 
     // Updating second X-offset and H-lines start point for next verticle
-    _ofsX1 = (x3 - x2) * 1000 / (y3 - y2);
-    _xStart = x2 * 1000;
+    ofsX1 = (x3 - x2) * 1000 / (y3 - y2);
+    xStart = x2 * 1000;
 
     
     // Top part of triangle filling cycle
-    for (/* h = lastY */; _h <= y3; _h++) {
+    for (/* h = lastY */; h <= y3; h++) {
 
         // H-line filling
-        fillRect(round3(_xStart) / 1000, _h, round3(_xEnd) / 1000, _h, color);
+        fillRect(round3(xStart) / 1000, h, round3(xEnd) / 1000, h, color);
 
         //Move start/end with relevant offsets
-        _xStart += _ofsX1;
-        _xEnd += _ofsX2;
+        xStart += ofsX1;
+        xEnd += ofsX2;
     }
 }
 
@@ -1243,55 +1260,49 @@ void ST7735_80x160::fillTriangle(int16_t x1, int16_t y1, int16_t x2, int16_t y2,
  * 
  * @param x0 circle center X position
  * @param y0 circle center Y position
- * @param radius circle outline radius
+ * @param rad circle outline radius
  * @param color circle outline color
  * 
  * @note Wikipedia opinion - https://en.wikipedia.org/wiki/Midpoint_circle_algorithm
  * 
  * @since v2
  */
-void ST7735_80x160::drawCircle(int16_t x0, int16_t y0, uint8_t radius, uint16_t color) {
-
-    // Zero radius error handler (else it draws circle with 255 radius)
-    if (radius == 0) {
-        drawPixel(x0, y0, color);
-        return;
-    }
+void ST7735_80x160::drawCircle(int16_t x0, int16_t y0, int16_t rad, uint16_t color) {
 
     // Initializing coordinates from circle center for pixels in 1/8 symmetric segment
-    int16_t _x = 0;
-    int16_t _y = radius;
+    int16_t x = 0;
+    int16_t y = rad;
 
     // Error value, used to correct pixels height
-    int _error = 1 - radius;
+    int16_t error = 1 - rad;
 
 
     // Cycle while we not finish 1/8 segments drawing
-    while (_x <= _y) {
+    while (x <= y) {
 
         // Drawing symmetric segments pixels using offsets from center
-        drawPixel(x0 + _x, y0 + _y, color); // 1/8
-        drawPixel(x0 - _x, y0 + _y, color); // 2/8
-        drawPixel(x0 + _x, y0 - _y, color); // 5/8
-        drawPixel(x0 - _x, y0 - _y, color); // 6/8
+        drawPixel(x0 + x, y0 + y, color); // 1/8
+        drawPixel(x0 + x, y0 - y, color); // 4/8
+        drawPixel(x0 - x, y0 - y, color); // 5/8
+        drawPixel(x0 - x, y0 + y, color); // 8/8
 
-        drawPixel(x0 + _y, y0 + _x, color); // 3/8
-        drawPixel(x0 + _y, y0 - _x, color); // 4/8
-        drawPixel(x0 - _y, y0 + _x, color); // 7/8
-        drawPixel(x0 - _y, y0 - _x, color); // 8/8
+        drawPixel(x0 + y, y0 + x, color); // 2/8
+        drawPixel(x0 + y, y0 - x, color); // 3/8
+        drawPixel(x0 - y, y0 - x, color); // 6/8
+        drawPixel(x0 - y, y0 + x, color); // 7/8
 
 
         // Correcting pixels height
-        if (_error < 0) {
-            _error += 2 * _x + 3;
+        if (error < 0) {
+            error += 2 * x + 3;
         }
         else {
-            _error += 2 * (_x - _y) + 5;
-            _y--; // _y decrement as fast as _x getting more
+            error += 2 * (x - y) + 5;
+            y--; // y decrement as fast as x increases
         }
 
         // Always increasing X offset, segment can't have more than 1 pixel in X vector (column/row)
-        _x++;
+        x++;
     }
 }
 
@@ -1304,45 +1315,173 @@ void ST7735_80x160::drawCircle(int16_t x0, int16_t y0, uint8_t radius, uint16_t 
  * 
  * @param x0 circle center X position
  * @param y0 circle center Y position
- * @param radius circle area radius
+ * @param rad circle area radius
  * @param color circle area color
  * 
  * @since v2
  */
-void ST7735_80x160::fillCircle(int16_t x0, int16_t y0, uint8_t radius, uint16_t color) {
+void ST7735_80x160::fillCircle(int16_t x0, int16_t y0, int16_t rad, uint16_t color) {
 
     // Initializing pixels coordinates from circle center
-    int16_t _x = 0;
-    int16_t _y = radius;
+    int16_t x = 0;
+    int16_t y = rad;
 
     // Error value, used to correct pixels height
-    int _error = 1 - radius;
-
-    // Drawing central line to save one while cycle and remove double line check
-    drawHLine(x0 - radius, y0, radius * 2 + 1, color);
+    int16_t error = 1 - rad;
 
 
     // Drawing cycle
-    while (_x < _y) {
+    while (x <= y) {
+
+        // Double line check and exiting
+        if (x == y) { drawHLine(x0 - rad, y0, rad * 2 + 1, color); return; }
         
-        // Always increment _x coordinate from start
-        _x++;
+        // Always increment x coordinate from start
+        x++;
 
         // Error correcting
-        if (_error < 0) {
-            _error += 2 * _x + 1;
+        if (error < 0) {
+            error += 2 * x + 1;
         }
-        else { // Getting down by _y (correcting height by error)
-            _y--;
-            _error += 2 * (_x - _y) + 1;
+        else { // Getting down by y (correcting height by error)
+            y--;
+            error += 2 * (x - y) + 1;
         }
 
         // Drawing 4 H-lines to fill circle
-        drawHLine(x0 - _x, y0 + _y, 2 * _x + 1, color);
-        drawHLine(x0 - _x, y0 - _y, 2 * _x + 1, color);
+        drawHLine(x0 - x, y0 + y, 2 * x + 1, color);
+        drawHLine(x0 - x, y0 - y, 2 * x + 1, color);
 
-        drawHLine(x0 - _y, y0 + _x, 2 * _y + 1, color);
-        drawHLine(x0 - _y, y0 - _x, 2 * _y + 1, color);
+        drawHLine(x0 - y, y0 + x, 2 * y + 1, color);
+        drawHLine(x0 - y, y0 - x, 2 * y + 1, color);
+    }
+}
+
+/**
+ * @brief Draws rectangle outline with rounded corners
+ * 
+ * Moves rectangle outline to buffer. Corners rounded by Bresenham's algorithm
+ * 
+ * for circles from drawCircle() method.
+ * 
+ * @param x1 outline start X position
+ * @param y1 outline start Y position
+ * @param x2 outline end X position
+ * @param y2 outline end Y position
+ * @param rad rounded corners radius
+ * @param color outline radius
+ * 
+ * @since v5
+ */
+void ST7735_80x160::drawRoundRect(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t rad, uint16_t color) {
+
+    // Negative radius handler
+    if (rad < 0) return;
+
+    // Swapping verticles if they inversed
+    if (x1 > x2) swap(x1, x2);
+    if (y1 > y2) swap(y1, y2);
+
+    // Over-radius handler
+    if      (rad > (x2 - x1) / 2) rad = (x2 - x1) / 2;
+    else if (rad > (y2 - y1) / 2) rad = (y2 - y1) / 2;
+
+    // Lines length adjusted for radius definition
+    int16_t lenHor =  x2 - x1 - (rad * 2);
+    int16_t lenVer =  y2 - y1 - (rad * 2);
+
+    // Drawing rectangle lines with radius offset
+    drawHLine(x1 + rad + 1, y1, lenHor, color); drawVLine(x1, y1 + rad,     lenVer, color);
+    drawHLine(x1 + rad,     y2, lenHor, color); drawVLine(x2, y1 + rad + 1, lenVer, color);
+
+
+    // Initializing circle pixels position and error
+    int16_t x = 0;
+    int16_t y = rad;
+    int16_t error = 1 - rad;
+
+    // Drawing rounded corners
+    while (x <= y) {
+
+        // Drawing pixels with centralization by radius
+        drawPixel(x1 - x + rad, y1 - y + rad, color); // {x1, y1}
+        drawPixel(x1 - y + rad, y1 - x + rad, color);
+
+        drawPixel(x1 - y + rad, y2 + x - rad, color); // {x1, y2}
+        drawPixel(x1 - x + rad, y2 + y - rad, color);
+
+        drawPixel(x2 + y - rad, y1 - x + rad, color); // {x2, y1}
+        drawPixel(x2 + x - rad, y1 - y + rad, color);
+
+        drawPixel(x2 + x - rad, y2 + y - rad, color); // {x2, y2}
+        drawPixel(x2 + y - rad, y2 + x - rad, color);
+
+
+        // Correcting pixels height by error
+        if (error < 0) { error += 2 * x + 3; }
+        else           { error += 2 * (x - y) + 5; y--; }
+
+        // Moving to next pixel
+        x++;
+    }
+}
+
+/**
+ * @brief Draws rectangle area with rounded corners
+ * 
+ * Moves rectangle area to buffer. Corners rounded by Bresenham's algorithm
+ * 
+ * for circles from fillCircle() method.
+ * 
+ * @param x1 area start X position
+ * @param y1 area start Y position
+ * @param x2 area end X position
+ * @param y2 area end Y position
+ * @param rad rounded corners radius
+ * @param color area radius
+ * 
+ * @since v5
+ */
+void ST7735_80x160::fillRoundRect(int16_t x1, int16_t y1, int16_t x2, int16_t y2, int16_t rad, uint16_t color) {
+
+    // Negative radius handler
+    if (rad < 0) return;
+
+    // Swapping verticles if they inversed
+    if (x1 > x2) swap(x1, x2);
+    if (y1 > y2) swap(y1, y2);
+
+    // Over-radius handler
+    if      (rad > (x2 - x1) / 2) rad = (x2 - x1) / 2;
+    else if (rad > (y2 - y1) / 2) rad = (y2 - y1) / 2;
+
+    // Filling rectangle main part
+    fillRect(x1, y1 + rad, x2, y2 - rad, color);
+
+
+    // Initializing circle H-lines start and error
+    int16_t x = 0;
+    int16_t y = rad;
+    int16_t error = 1 - rad;
+
+    // Horizontal length adjusted for radius
+    int16_t lenHor =  x2 - x1 - (rad * 2);
+
+    // Rounded corners parts drawing
+    while (x < y) {
+        
+        // Moving to next pixel
+        x++;
+
+        // Error correcting and decreasing y
+        if (error < 0) { error += 2 * x + 1; }
+        else           { y--; error += 2 * (x - y) + 1; }
+
+        // Drawing H-lines to fill corners (length increased by rectangle width)
+        drawHLine(x1 - x + rad, y1 - y + rad, 2 * x + lenHor + 1, color);
+        drawHLine(x1 - y + rad, y1 - x + rad, 2 * y + lenHor + 1, color);
+        drawHLine(x1 - x + rad, y2 + y - rad, 2 * x + lenHor + 1, color);
+        drawHLine(x1 - y + rad, y2 + x - rad, 2 * y + lenHor + 1, color);
     }
 }
 
